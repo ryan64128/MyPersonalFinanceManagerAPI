@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to create an RDS instance within the VPC.
+
+Parameters:
+  VPCId:
+    Description: VPC Id
+    Type: String
+  PublicSubnetId:
+    Description: Public Subnet Id
+    Type: String
+  PrivateSubnetId:
+    Description: Private Subnet Id
+    Type: String
+  DBUsername:
+    Description: The database admin account username
+    Type: String
+    Default: admin
+  DBPassword:
+    Description: The database admin account password
+    Type: String
+    NoEcho: true
+
+Resources:
+  MyDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: MyDBSubnetGroup
+      SubnetIds:
+        - !Ref PublicSubnetId
+        - !Ref PrivateSubnetId
+
+  MyDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: mydbinstance
+      AllocatedStorage: 20
+      DBInstanceClass: db.t2.micro
+      Engine: mysql
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      VPCSecurityGroups: []
+      MultiAZ: false
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      StorageType: gp2
+
+Outputs:
+  DBInstanceIdentifier:
+    Description: The DB Instance Identifier
+    Value: !Ref MyDBInstance
+    Export:
+      Name: MyDBInstanceIdentifier
+
+  DBEndpoint:
+    Description: The database endpoint
+    Value: !GetAtt MyDBInstance.Endpoint.Address
+    Export:
+      Name: MyDBEndpoint
