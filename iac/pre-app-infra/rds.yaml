@@ -118,6 +118,8 @@ Resources:
               - Effect: "Allow"
                 Action:
                   - "rds:DescribeDBInstances"
+                  - "rds:CreateDBInstance"
+                  - "rds:ModifyDBInstance"
                   - "ssm:GetParameter"
                 Resource: "*"
 
