@@ -1,59 +1,129 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: AWS CloudFormation Template to create an RDS instance within the VPC.
+Description: AWS CloudFormation Template to create an RDS instance.
 
 Parameters:
   VPCId:
+    Type: String
     Description: VPC Id
-    Type: String
   PublicSubnetId:
-    Description: Public Subnet Id
     Type: String
+    Description: Public Subnet Id
   PrivateSubnetId:
+    Type: String
     Description: Private Subnet Id
+  DBInstanceIdentifier:
+    Type: String
+  DBName:
     Type: String
   DBUsername:
-    Description: The database admin account username
     Type: String
-    Default: admin
   DBPassword:
-    Description: The database admin account password
     Type: String
     NoEcho: true
+    Description: "The database admin account password"
+  
 
 Resources:
   MyDBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupDescription: MyDBSubnetGroup
+      DBSubnetGroupDescription: "Subnet group for RDS instance"
       SubnetIds:
         - !Ref PublicSubnetId
         - !Ref PrivateSubnetId
+      Tags:
+        - Key: Name
+          Value: MyDBSubnetGroup
+
+  MyDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS instance
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: MyDBSecurityGroup
 
   MyDBInstance:
     Type: AWS::RDS::DBInstance
     Properties:
-      DBInstanceIdentifier: mydbinstance
+      DBInstanceIdentifier: MyDatabaseInstance
       AllocatedStorage: 20
-      DBInstanceClass: db.t2.micro
+      DBInstanceClass: db.t3.micro  # Updated to a supported instance type
       Engine: mysql
+      EngineVersion: 8.0.32  # Updated to a supported engine version
       MasterUsername: !Ref DBUsername
       MasterUserPassword: !Ref DBPassword
       DBSubnetGroupName: !Ref MyDBSubnetGroup
-      VPCSecurityGroups: []
-      MultiAZ: false
-      PubliclyAccessible: false
-      BackupRetentionPeriod: 7
-      StorageType: gp2
+      VPCSecurityGroups:
+        - !Ref MyDBSecurityGroup
+      PubliclyAccessible: true
+      
+  MyDBInitFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: "index.handler"
+      Role: !GetAtt MyDBInitFunctionRole.Arn
+      Code:
+        ZipFile: |
+          const mysql = require('mysql2/promise');
+          const AWS = require('aws-sdk');
+          const ssm = new AWS.SSM();
+          
+          exports.handler = async (event) => {
+            const { DB_HOST, DB_NAME, DB_USER, DB_PASS } = process.env;
+            
+            const connection = await mysql.createConnection({
+              host: DB_HOST,
+              user: DB_USER,
+              password: DB_PASS,
+              database: DB_NAME,
+            });
+            
+            const query = `$(fs.readFileSync('/iac/database-schema/schema.sql', 'utf8'))`;
+            await connection.query(query);
+            await connection.end();
+          };
+      Runtime: "nodejs20.x"
+      Timeout: 300
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt MyDBInstance.Endpoint.Address
+          DB_NAME: !Ref DBName
+          DB_USER: !Ref DBUsername
+          DB_PASS: !Ref DBPassword
+
+  MyDBInitFunctionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: "MyDBInitPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "rds:DescribeDBInstances"
+                  - "ssm:GetParameter"
+                Resource: "*"
 
 Outputs:
   DBInstanceIdentifier:
-    Description: The DB Instance Identifier
+    Description: The RDS instance identifier
     Value: !Ref MyDBInstance
     Export:
       Name: MyDBInstanceIdentifier
-
-  DBEndpoint:
-    Description: The database endpoint
-    Value: !GetAtt MyDBInstance.Endpoint.Address
-    Export:
-      Name: MyDBEndpoint
